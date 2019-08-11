@@ -10,25 +10,46 @@
 
 import stanfordnlp
 import pandas
+from pycorenlp import StanfordCoreNLP
 
-
-def get_root(df):
-    # extract the root of a sentence analyzed through NLP processing and stored in a df
+# advanced entity extraction - extracts MWEs like "Nick Fury", yet  multiple subjects like "Nick Fury and Maria Hill"
+# do not work correctly. It is able to detect a second subject even if not marked as such by Stanford Core
+# extracts 1 occurrence of 'subj' or 'obj', sentences with more than 1 require even more complex solutions
+def extract_entities(df, subj_or_obj):
+    entities = []
     try:
-        root_predicate = df.loc[df[3].str.contains('root')][1].values[0]
-        root_position = int(df.loc[df[3].str.contains('root')][0].values[0])
+        pos_entity = df.loc[df['dependency'].str.contains(subj_or_obj)]['sentence_position'].values[0]
+        name_entity = df.loc[df['dependency'].str.contains(subj_or_obj)]['text'].values[0]
+    except:
+        return "Entity Extraction failed"
+    # get mwes
+    try:
+        nxt_pos_dpndcy = df.loc[df.loc[:, 'sentence_position'] == str(int(pos_entity) + 1), 'dependency']
+        if len(nxt_pos_dpndcy) == 0:
+            entities.append(name_entity)
+        elif nxt_pos_dpndcy.values[0] in ["fixed", "flat", "compound"]:
+            mwe = df.loc[df.loc[:, 'sentence_position'] == str(int(pos_entity) + 1), 'text']
+            entity = name_entity + " " + mwe.values[0]
+            entities.append(entity)
+        elif nxt_pos_dpndcy.values[0] not in ["fixed", "flat", "compound"]:
+            entities.append(name_entity)
     except:
         pass
-    return root_predicate, root_position
-
-def get_mwe(df, word_position):
-    # determine multi word expressions
-    if df.iloc[word_position + 1,3] == "fixed" or "flat" or "compound":
-        mwe = df.iloc[word_position + 1, 1]
-    return mwe
+    # find additional entities
+    try:
+        if nxt_pos_dpndcy.values[0] in ["cc"]:
+            upos_check = df.loc[df.loc[:, 'sentence_position'] == str(int(pos_entity) + 2), 'upos']
+            if upos_check.values[0] in ["PROPN", "PRON"]:
+                second_entity = df.loc[df.loc[:, 'sentence_position'] == str(int(pos_entity) + 2), 'text']
+                entities.append(second_entity.values[0])
+    except:
+        pass
+    return entities
 
 
 stanfordnlp.download('en')
+
+inst = StanfordCoreNLP('http://localhost:9000')
 
 nlp = stanfordnlp.Pipeline()
 doc = nlp(plot_dict[urls[22]])
@@ -69,50 +90,23 @@ df[4] = word_governor
 df = df.loc[~df[2].str.contains('PUNCT')]
 df.columns = ['sentence_position', 'text', 'upos', 'dependency', 'governor_position']
 
-# extract the root of that very data frame
-root_elements = get_root(df)
+# extract subjects per sentence
+subjects = extract_entities(df, 'subj')
 
-# extract objects
-objects_df = df.loc[df[3].str.contains('obj|obl')]
-# if there is a reference in objects_df to the position of the root element, link it to the root
-# df.loc[df[4] == root_elements[1]]
+# extract objects per sentence
+objects = extract_entities(df, 'obj')
 
-# extract subjects
-subjects = []
-# doing like it was done in next line will only create a copy of the dataframe
-# subjects_ref = df.loc[df[3].str.contains('subj|cc|conj|flat')]
-pos_subj = df.loc[df['dependency'].str.contains('subj')]['sentence_position'].values[0]
-name_subj = df.loc[df['dependency'].str.contains('subj')]['text'].values[0]
-# get mwes
-nxt_pos_dpndcy = df.loc[df.loc[:,'sentence_position'] == str(int(pos_subj)+1),'dependency']
-if nxt_pos_dpndcy.values[0] in ["fixed","flat","compound"]:
-    mwe = df.loc[df.loc[:,'sentence_position'] == str(int(pos_subj)+1),'text']
-    subject = name_subj + " " + mwe.values[0]
-    subjects.append(subject)
-if nxt_pos_dpndcy.values[0] not in ["fixed", "flat", "compound"]:
-    subjects.append(name_subj)
-# find additional subjects
-if nxt_pos_dpndcy.values[0] in ["cc"]:
-    upos_check = df.loc[df.loc[:, 'sentence_position'] == str(int(pos_subj) + 2), 'upos']
-    if upos_check.values[0] in ["PROPN","PRON"]:
-        second_subject = df.loc[df.loc[:, 'sentence_position'] == str(int(pos_subj) + 2), 'text']
-        subjects.append(second_subject.values[0])
+# extract the root of the sentence
+root_rel = extract_entities(df, 'root')
 
-# to-do: make it a function, because the same is applicable to objects; extend functionality,
-# currently MWE + multiple subjects like "Nick Fury and Maria Hill" does not work correctly
-# compare output to open IE output
-
-# to-do: add functionality to fallback to any other word in case that i.e. nsubj is missing or no object is there
-
-
-from pycorenlp import StanfordCoreNLP
-inst = StanfordCoreNLP('http://localhost:9000')
-
+# compare to output of openIE
 str_repr = ' '.join(word_text)
 
-output = inst.annotate(str_repr, properties={
+openie_output = inst.annotate(str_repr, properties={
   'annotators': 'tokenize,ssplit,pos,depparse,parse,openie',
   'outputFormat': 'json'
   })
 
-print(output['sentences'][0]['openie'])
+# in fact, there will be multiple sentences as Open IE gives variations of relations,
+# so we need a loop to write to a list and compare the list contents with the one from above
+openie_output['sentences'][0]['openie']
