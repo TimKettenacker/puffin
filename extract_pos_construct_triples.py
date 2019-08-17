@@ -13,8 +13,9 @@ import pandas
 from pycorenlp import StanfordCoreNLP
 
 # advanced entity extraction - extracts MWEs like "Nick Fury", yet  multiple subjects like "Nick Fury and Maria Hill"
-# do not work correctly. It is able to detect a second subject even if not marked as such by Stanford Core
-# extracts 1 occurrence of 'subj' or 'obj', sentences with more than 1 require even more complex solutions
+# do not work correctly. It is able to detect a second subject even if not marked as such by Stanford Core to some
+# degree; it will recognize 'Peter and MJ', which most likely will be flagged as 'subj cc conj', but not "Peter and
+# his friends". It extracts 1 occurrence of 'subj','obj', sentences with more than 1 require more sophisticated solution
 def extract_entities(df, subj_or_obj):
     entities = []
     try:
@@ -93,8 +94,11 @@ df.columns = ['sentence_position', 'text', 'upos', 'dependency', 'governor_posit
 # extract subjects per sentence
 subjects = extract_entities(df, 'subj')
 
-# extract objects per sentence
+# extract objects per sentence; if 'obj' is not recognized, the object is most likely a place,
+# which is indicated by 'obl', so try this instead
 objects = extract_entities(df, 'obj')
+if (objects == 'Entity Extraction failed') == True:
+    objects = extract_entities(df, 'obl')
 
 # extract the root of the sentence
 root_rel = extract_entities(df, 'root')
@@ -107,6 +111,16 @@ openie_output = inst.annotate(str_repr, properties={
   'outputFormat': 'json'
   })
 
-# in fact, there will be multiple sentences as Open IE gives variations of relations,
-# so we need a loop to write to a list and compare the list contents with the one from above
-openie_output['sentences'][0]['openie']
+subjects_openie = []
+objects_openie = []
+relations_openie = []
+for i in range(0,len(openie_output['sentences'][0]['openie'])):
+    subjects_openie.append(openie_output['sentences'][0]['openie'][i]['subject'])
+    objects_openie.append(openie_output['sentences'][0]['openie'][i]['object'])
+    relations_openie.append(openie_output['sentences'][0]['openie'][i]['relation'])
+
+subjects_openie = list(set(subjects_openie))
+objects_openie = list(set(objects_openie))
+relations_openie = list(set(relations_openie))
+
+# compare lists
