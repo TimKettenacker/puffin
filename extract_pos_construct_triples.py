@@ -92,16 +92,16 @@ df = df.loc[~df[2].str.contains('PUNCT')]
 df.columns = ['sentence_position', 'text', 'upos', 'dependency', 'governor_position']
 
 # extract subjects per sentence
-subjects = extract_entities(df, 'subj')
+subjects_ext = extract_entities(df, 'subj')
 
 # extract objects per sentence; if 'obj' is not recognized, the object is most likely a place,
 # which is indicated by 'obl', so try this instead
-objects = extract_entities(df, 'obj')
-if (objects == 'Entity Extraction failed') == True:
-    objects = extract_entities(df, 'obl')
+objects_ext = extract_entities(df, 'obj')
+if (objects_ext == 'Entity Extraction failed') == True:
+    objects_ext = extract_entities(df, 'obl')
 
 # extract the root of the sentence
-root_rel = extract_entities(df, 'root')
+relations_ext = extract_entities(df, 'root')
 
 # compare to output of openIE
 str_repr = ' '.join(word_text)
@@ -119,8 +119,10 @@ for i in range(0,len(openie_output['sentences'][0]['openie'])):
     objects_openie.append(openie_output['sentences'][0]['openie'][i]['object'])
     relations_openie.append(openie_output['sentences'][0]['openie'][i]['relation'])
 
-subjects_openie = list(set(subjects_openie))
-objects_openie = list(set(objects_openie))
-relations_openie = list(set(relations_openie))
+subjects = list(set(subjects_ext + subjects_openie))
+objects = list(set(objects_ext + objects_openie))
+relations = list(set(relations_ext + relations_openie))
 
-# compare lists
+# create cartesian product
+triple_list = [subjects, relations, objects]
+cart_prod = [(s,p,o) for s in triple_list[0] for p in triple_list[1] for o in triple_list[2]]
