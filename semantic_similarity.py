@@ -8,8 +8,14 @@
 # is able to alter and manage them in an integrated quad store
 # http://jens-lehmann.org/files/2014/perspectives_on_ontology_learning.pdf
 
+
+# the code snippets presented here are most useful when it comes to applying queries on text; map keywords input
+# on apparent semantic relatedness of the documents (in how far can it answer questions that are implicit in text)
+# https://radimrehurek.com/gensim/auto_examples/core/run_similarity_queries.html#sphx-glr-auto-examples-core-run-similarity-queries-py
+
 import gensim
 from gensim import corpora
+from gensim import models
 
 text_corpus = [
     "Human machine interface for lab abc computer applications",
@@ -53,5 +59,20 @@ print('the first tuple says id 0 is present one time in new_doc and id 1 is 1 ti
 bow_corpus = [dictionary.doc2bow(text) for text in processed_corpus]
 pprint.pprint(bow_corpus)
 
-# instead of using bag of words, latent semantic indexing should be used (coining the terms to its concepts)
+# now, a model can be applied - here its tf-idf powered by bag of words
+tfidf = models.TfidfModel(bow_corpus)
+print(tfidf[[(0, 1), (1, 1)]])
+# latent semantic indexing (coining the terms to its concepts) should be used in combination with tfs idf
 # https://stats.stackexchange.com/questions/99132/alternatives-to-bag-of-words-based-classifiers-for-text-classification
+# by setting num_topics to 2, only 2 topics are being created, each being a mixture of the words
+corpus_tfidf = tfidf[bow_corpus]
+for doc in corpus_tfidf:
+    print(doc)
+lsi_model = models.LsiModel(corpus_tfidf, id2word=dictionary, num_topics=2)  # initialize an LSI transformation
+corpus_lsi = lsi_model[corpus_tfidf]  # create a double wrapper over the original corpus: bow->tfidf->fold-in-lsi
+lsi_model.print_topics()
+for doc, as_text in zip(corpus_lsi, text_corpus):
+    print(doc, as_text)
+
+model = models.HdpModel(corpus, id2word=dictionary)
+
