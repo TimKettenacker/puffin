@@ -76,3 +76,10 @@ for doc, as_text in zip(corpus_lsi, text_corpus):
 
 model = models.HdpModel(corpus, id2word=dictionary)
 
+
+#
+flat_list = [item for sublist in triples for item in sublist]
+text_corpus = [' '.join(i) for i in flat_list]
+texts = [[word for word in document.lower().split()] for document in text_corpus]
+dictionary = corpora.Dictionary(texts)
+bow_corpus = [dictionary.doc2bow(text) for text in texts]

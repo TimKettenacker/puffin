@@ -1,7 +1,6 @@
-# the code retrieves tree structures from sentences to facilitate ontology engineering
-# For a general introduction to computational linguistics refer to
-# https://www.analyticsvidhya.com/blog/2017/12/introduction-computational-linguistics-dependency-trees/?utm_source=blog&utm_medium=stanfordnlp-nlp-library-python
-
+# this code retrieves tree structures from sentences to facilitate ontology engineering and locates the data objects
+# (for ontology learning) see https://stanfordnlp.github.io/stanfordnlp/data_objects.html
+#
 # before running start the stanford core server in the respective directory, following the commentary in this manual:
 # https://stackoverflow.com/questions/32879532/stanford-nlp-for-python
 # cd Documents
@@ -15,12 +14,6 @@ logger=logging.getLogger(__name__)
 import stanfordnlp
 import pandas
 from pycorenlp import StanfordCoreNLP
-
-# data objects need to be extracted for ontologies, see https://stanfordnlp.github.io/stanfordnlp/data_objects.html
-# dependency_relation is a key element (word to grammar relationships); while 'nsubj', 'nsubj:pass', 'compound' and
-# 'flat' characterize subjects and 'obj', 'obl' the object, relationship values are often indicated by the 'root' and
-# sometimes the 'conj' dependency. Yet, there is no exhaustive list of possible dependency values, but the alphabetical
-# listing of the Universal Dependency project is expanded on https://universaldependencies.org/u/dep/index.html
 
 
 # map data objects inside a dataframe to the output of the shallow parsing
@@ -58,15 +51,19 @@ def get_shallow_parsing_structures(annotated_words):
     return(df)
 
 
-# advanced entity extraction - extracts MWEs like "Nick Fury", yet  multiple subjects like "Nick Fury and Maria Hill"
+# advanced entity extraction - extracts MWEs like "Nick Fury", yet  multiple subjects like "Nick Fury & Maria Hill"
 # do not work correctly. It is able to detect a second subject even if not marked as such by Stanford Core to some
 # degree; it will recognize 'Peter and MJ', which most likely will be flagged as 'subj cc conj', but not "Peter and
-# his friends". It extracts 1 occurrence of 'subj','obj', sentences with more than 1 require more sophisticated solution
-def extract_entities(df, subj_or_obj):
+# his friends". It extracts 1 occurrence of 'subj','obj', 'root' (more than 1 require more sophisticated solutions)
+# dependency_relation is a key element (word to grammar relationships); while 'nsubj', 'nsubj:pass', 'compound' and
+# 'flat' characterize subjects and 'obj', 'obl' the object, relationship values are often indicated by the 'root' &
+# sometimes the 'conj' dependency. Yet, there is no exhaustive list of possible dependency values, but alphabetical
+# listing of the Universal Dependency project is expanded on https://universaldependencies.org/u/dep/index.html
+def extract_entities(df, dependency_term):
     entities = []
     try:
-        pos_entity = df.loc[df['dependency'].str.contains(subj_or_obj)]['sentence_position'].values[0]
-        name_entity = df.loc[df['dependency'].str.contains(subj_or_obj)]['text'].values[0]
+        pos_entity = df.loc[df['dependency'].str.contains(dependency_term)]['sentence_position'].values[0]
+        name_entity = df.loc[df['dependency'].str.contains(dependency_term)]['text'].values[0]
     except Exception as e:
         logger.error(e)
         return "Entity Extraction failed"
@@ -97,38 +94,59 @@ def extract_entities(df, subj_or_obj):
     return entities
 
 
-# increase quality of extraction services by including Stanford's openie
-# https://stanfordnlp.github.io/CoreNLP/openie.html
-def get_openie_values(df):
+# increase quality of extraction by including Stanford's OpenIE (https://stanfordnlp.github.io/CoreNLP/openie.html)
+# which generates triples from text, while Stanford NER supports mapping MWEs like "Maria" to schema.org/person
+# returns five lists ordering triples from OpenIE according to (s,p,o) as well as the associated concepts and
+# individuals generated through Named Entity Recognition if applicable
+def ask_openie_ner_service(df):
     str_repr = ' '.join(df['text'])
 
     openie_output = inst.annotate(str_repr, properties={
-        'annotators': 'tokenize,ssplit,pos,depparse,parse,openie',
+        'annotators': 'tokenize,ssplit,pos,depparse,parse, openie, ner',
         'outputFormat': 'json'
     })
 
     subjects_openie = []
     objects_openie = []
     relations_openie = []
+    token_ner = []
+    metadata_ner = []
 
+    # populate lists for triples
     try:
-        for i in range(0, len(openie_output['sentences'][0]['openie'])):
-            subjects_openie.append(openie_output['sentences'][0]['openie'][i]['subject'])
-            objects_openie.append(openie_output['sentences'][0]['openie'][i]['object'])
-            relations_openie.append(openie_output['sentences'][0]['openie'][i]['relation'])
+        for ii in range(0, len(openie_output['sentences'][0]['openie'])):
+            subjects_openie.append(openie_output['sentences'][0]['openie'][ii]['subject'])
+            relations_openie.append(openie_output['sentences'][0]['openie'][ii]['relation'])
+            objects_openie.append(openie_output['sentences'][0]['openie'][ii]['object'])
     except Exception as e:
         logger.error(e)
         pass
 
-    return(subjects_openie, objects_openie, relations_openie)
+    # populate lists for metadata
+    try:
+        for jj in range(0, len(openie_output['sentences'][0]['entitymentions'])):
+            token_ner.append(openie_output['sentences'][0]['entitymentions'][jj]['text'])
+            metadata_ner.append(openie_output['sentences'][0]['entitymentions'][jj]['ner'])
+
+    except Exception as e:
+        logger.error(e)
+        pass
+
+    return(subjects_openie, relations_openie, objects_openie, metadata_ner, token_ner)
 
 
-# generate triples by combining both extraction methods
-def combine_extraction_results_into_triples(df):
+# aligns the extraction results from extract_entities() with the services from OpenIE and NER
+def align_extraction_results(df):
+
     # extract subjects per sentence
     subjects_ext = extract_entities(df, 'subj')
     if (subjects_ext == "Entity Extraction failed"):
         subjects_ext = []
+
+    # extract the root of the sentence
+    relations_ext = extract_entities(df, 'root')
+    if (relations_ext == "Entity Extraction failed"):
+        relations_ext = []
 
     # extract objects per sentence; if 'obj' is not recognized, the object is most likely a place,
     # which is indicated by 'obl', so try this instead
@@ -138,25 +156,25 @@ def combine_extraction_results_into_triples(df):
         if (objects_ext == "Entity Extraction failed"):
             objects_ext = []
 
-    # extract the root of the sentence
-    relations_ext = extract_entities(df, 'root')
-    if (relations_ext == "Entity Extraction failed"):
-        relations_ext = []
+    # the Pandas Series are used to rectify the sometimes missing index
+    triples_extracted_df = pandas.DataFrame(columns=['Subject', 'Predicate', 'Object'])
+    triples_extracted_df['Subject'] = pandas.Series(subjects_ext)
+    triples_extracted_df['Predicate'] = pandas.Series(relations_ext)
+    triples_extracted_df['Object'] = pandas.Series(objects_ext)
 
-    # call openie
-    openie_out = get_openie_values(df)
-    subjects_openie = openie_out[0]
-    objects_openie = openie_out[1]
-    relations_openie = openie_out[2]
-    subjects = list(set(subjects_ext + subjects_openie))
-    objects = list(set(objects_ext + objects_openie))
-    relations = list(set(relations_ext + relations_openie))
+    # call Stanford extraction services
+    service_response = ask_openie_ner_service(df)
 
-    # create cartesian product
-    triple_list = [subjects, relations, objects]
-    cart_prod = [(s, p, o) for s in triple_list[0] for p in triple_list[1] for o in triple_list[2]]
+    triples_openie_df = pandas.DataFrame(columns=['Subject', 'Predicate', 'Object'])
+    triples_openie_df['Subject'] = pandas.Series(service_response[0])
+    triples_openie_df['Predicate'] = pandas.Series(service_response[1])
+    triples_openie_df['Object'] = pandas.Series(service_response[2])
 
-    return(cart_prod)
+    metadata_ner_df = pandas.DataFrame(columns=['Concept', 'Individual'])
+    metadata_ner_df['Concept'] = pandas.Series(service_response[3])
+    metadata_ner_df['Individual'] = pandas.Series(service_response[4])
+
+    return(triples_extracted_df, triples_openie_df, metadata_ner_df)
 
 
 
@@ -165,21 +183,21 @@ stanfordnlp.download('en') # technically, this line needs to be executed only on
 inst = StanfordCoreNLP('http://localhost:9000')
 nlp = stanfordnlp.Pipeline()
 
-# for the time being, generate knowledge about 1 movie only
+
+# eventually, this code snippets generates two data frames holding valuable information to go forward; triples_df
+# contains the individuals, but before creation of RDF triples can be commenced, a meta schema must be generated
+# to set the namespaces for URIRefs and BNodes i.e. with the help of python's rdflib, so metadata_df holds all
+# concepts mapped to individuals, so it can be processed in a lookup dictionary
+# (limit to gather knowledge for 1 movie at a time, due to performance when appending data frames and manageability)
 triples = []
+triples_df = pandas.DataFrame(columns=['Subject', 'Predicate', 'Object'])
+metadata_df = pandas.DataFrame(columns=['Concept', 'Individual'])
 for i in range(22, len(plot_dict)):
     doc = nlp(plot_dict[urls[i]])
     for y in range(0, len(doc.sentences)):
         annotated_words = doc.sentences[y].words
         df = get_shallow_parsing_structures(annotated_words)
-        triples.append(combine_extraction_results_into_triples(df))
-
-# variable "triples" contains the instance data, before creation of RDF triples can be commenced, a meta schema
-# must be generated to set the namespaces for URIRefs and BNodes with the help of python's rdflib or similar,
-# in order to map values like "Maria Hill" to schema.org/person etc. - could a full-stack application be useful
-# to identify the important content (selecting the relevant triples)?
-# maybe LDA and word2vec to get a sense of (neighboring) topics? -> Then checking available ontologies manually
-# instance data can be mapped to owl after ontology is created, "triples" variable could be added as individuals in
-# https://owlready2.readthedocs.io/en/latest/ - can read the RDF triples and other ontologies / vocabulary,
-# is able to alter and manage them in an integrated quad store
-# http://jens-lehmann.org/files/2014/perspectives_on_ontology_learning.pdf
+        extracted_results = align_extraction_results(df)
+        triples_df = triples_df.append(extracted_results[0])
+        triples_df = triples_df.append(extracted_results[1])
+        metadata_df = metadata_df.append(extracted_results[2])
