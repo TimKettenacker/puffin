@@ -177,12 +177,10 @@ def align_extraction_results(df):
     return(triples_extracted_df, triples_openie_df, metadata_ner_df)
 
 
-
 stanfordnlp.download('en') # technically, this line needs to be executed only once
 
 inst = StanfordCoreNLP('http://localhost:9000')
 nlp = stanfordnlp.Pipeline()
-
 
 # eventually, this code snippets generates two data frames holding valuable information to go forward; triples_df
 # contains the individuals, but before creation of RDF triples can be commenced, a meta schema must be generated
@@ -198,6 +196,6 @@ for i in range(22, len(plot_dict)):
         annotated_words = doc.sentences[y].words
         df = get_shallow_parsing_structures(annotated_words)
         extracted_results = align_extraction_results(df)
-        triples_df = triples_df.append(extracted_results[0])
-        triples_df = triples_df.append(extracted_results[1])
-        metadata_df = metadata_df.append(extracted_results[2])
+        triples_df = triples_df.append(extracted_results[0], ignore_index = True)
+        triples_df = triples_df.append(extracted_results[1], ignore_index = True)
+        metadata_df = metadata_df.append(extracted_results[2], ignore_index = True)
