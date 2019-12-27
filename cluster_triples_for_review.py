@@ -9,22 +9,27 @@
 # is able to alter and manage them in an integrated quad store
 
 import fuzzywuzzy
+from fuzzywuzzy import fuzz
 
 triples_df['triple'] = triples_df['Subject'].map(str) + "," + triples_df['Predicate'] + "," + triples_df['Object']
 triples = triples_df['triple'].to_list()
 
 match_groups = []
 id = 0
-for word in t:
+for word in triples:
     added_to_existing = False
     for merged in match_groups:
-        for potentially_similar in merged[0]:
-            if (fuzz.partial_ratio(word, potentially_similar) > 75) & (fuzz.token_set_ratio(word, potentially_similar) > 75):
-                merged[0].add(word)
-                added_to_existing = True
+        try:
+            for potentially_similar in merged[0]:
+                if (fuzz.partial_ratio(word, potentially_similar) > 75) & (fuzz.token_set_ratio(word, potentially_similar) > 75):
+                    merged[0].add(word)
+                    added_to_existing = True
+                    break
+            if added_to_existing:
                 break
-        if added_to_existing:
-            break
+        except Exception as e:
+            logger.error(e)
+            pass
     if not added_to_existing:
         id += 1
         match_groups.append([set([word]), id])
