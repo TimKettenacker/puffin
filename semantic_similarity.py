@@ -1,14 +1,3 @@
-# variable "triples" contains the instance data, before creation of RDF triples can be commenced, a meta schema
-# must be generated to set the namespaces for URIRefs and BNodes with the help of python's rdflib or similar,
-# in order to map values like "Maria Hill" to schema.org/person etc. - could a full-stack application be useful
-# to identify the important content (selecting the relevant triples)?
-# maybe LDA and word2vec to get a sense of (neighboring) topics? -> Then checking available ontologies manually
-# instance data can be mapped to owl after ontology is created, "triples" variable could be added as individuals in
-# https://owlready2.readthedocs.io/en/latest/ - can read the RDF triples and other ontologies / vocabulary,
-# is able to alter and manage them in an integrated quad store
-# http://jens-lehmann.org/files/2014/perspectives_on_ontology_learning.pdf
-
-
 # the code snippets presented here are most useful when it comes to applying queries on text; map keywords input
 # on apparent semantic relatedness of the documents (in how far can it answer questions that are implicit in text)
 # https://radimrehurek.com/gensim/auto_examples/core/run_similarity_queries.html#sphx-glr-auto-examples-core-run-similarity-queries-py
@@ -73,8 +62,6 @@ corpus_lsi = lsi_model[corpus_tfidf]  # create a double wrapper over the origina
 lsi_model.print_topics()
 for doc, as_text in zip(corpus_lsi, text_corpus):
     print(doc, as_text)
-
-model = models.HdpModel(corpus, id2word=dictionary)
 
 
 #

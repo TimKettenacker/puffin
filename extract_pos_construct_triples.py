@@ -187,7 +187,6 @@ nlp = stanfordnlp.Pipeline()
 # to set the namespaces for URIRefs and BNodes i.e. with the help of python's rdflib, so metadata_df holds all
 # concepts mapped to individuals, so it can be processed in a lookup dictionary
 # (limit to gather knowledge for 1 movie at a time, due to performance when appending data frames and manageability)
-triples = []
 triples_df = pandas.DataFrame(columns=['Subject', 'Predicate', 'Object'])
 metadata_df = pandas.DataFrame(columns=['Concept', 'Individual'])
 for i in range(22, len(plot_dict)):
