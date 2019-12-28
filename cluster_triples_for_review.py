@@ -10,7 +10,6 @@
 
 import fuzzywuzzy
 from fuzzywuzzy import fuzz
-import inquirer
 from datetime import date
 
 triples_df['triple'] = triples_df['Subject'].map(str) + "," + triples_df['Predicate'] + "," + triples_df['Object']
