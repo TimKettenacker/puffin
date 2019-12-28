@@ -9,7 +9,7 @@ import csv
 
 # prompt user to select a file to be uploaded
 ask_for_file = [
-  inquirer.List('size',
+  inquirer.List('x',
                 message="Please select the file for review",
                 choices=os.listdir(os.getcwd()),
             ),
@@ -30,11 +30,15 @@ for group_id in triples4review_df['group_id'].unique():
                           ),
     ]
     answers = inquirer.prompt(questions)
-    triples_to_persist.append(answers.values())
+    for values in answers.values():
+        for value in values:
+            triples_to_persist.append(value)
 
 # write reviewed triples to disk
 file_name = str(date.today().isoformat()) + "_reviewed_triples.csv"
+
 with open(file_name, "w") as f:
     writer = csv.writer(f, delimiter=';', quoting=csv.QUOTE_MINIMAL)
-    writer.writerows(triples_to_persist)
+    writer.writerow(triples_to_persist)
+
 print("Thanks! Your input has been stored")
