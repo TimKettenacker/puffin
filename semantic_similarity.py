@@ -8,7 +8,7 @@
 # cd stanford-corenlp-full-2018-10-05
 # java -mx5g -cp "*" edu.stanford.nlp.pipeline.StanfordCoreNLPServer -timeout 10000
 
-#import sys
+import sys
 import os
 import logging
 logging.basicConfig(filename='app.log', level=logging.ERROR,
@@ -19,6 +19,8 @@ from owlready2 import *
 from collections import defaultdict
 from pycorenlp import StanfordCoreNLP
 from fuzzywuzzy import fuzz
+from itertools import chain
+from nltk.corpus import wordnet
 
 # load ontology
 onto_path.append(str(os.getcwd() + '/data'))
@@ -96,12 +98,37 @@ def search_ontology_for_involved_entities(findings, startPointIsObject):
     return(spo_dict)
 
 
+def fuzzy_match_on_target(spo_dict):
+    intended_concept_confirmed = False
+    for predicate in enumerate(spo_dict['involved_predicates']):
+        if fuzz.ratio(predicate[1], findings['root_of_intent']) > 60:
+            if startPointIsObject == True:
+                indv = spo_dict['involved_subjects'][predicate[0]]
+            if startPointIsObject == False:
+                indv = spo_dict['involved_objects'][predicate[0]]
+            if (fuzz.ratio(findings['concept_of_target'], str(indv_concept_mapping[indv])) > 50):
+                intended_concept_confirmed = True
+    return (indv, intended_concept_confirmed)
+
+
+def search_ontology_for_property(word, findings, startPointIsObject):
+    spo_dict = defaultdict(list)
+
+    label = '*' + word + '*'
+    result = onto.search_one(label=label)
+    if result:
+        if (owl.ObjectProperty in result.is_a) == True:
+            spo_dict = search_ontology_for_involved_entities(findings, startPointIsObject)
+    else:
+        spo_dict = None
+    return(spo_dict)
+
+
 words_indicating_concepts = {'where':'location',
                              'who':'person',
                              'whom':'person',
                              'when':'event',
                              'what':'thing'}
-
 
 inst = StanfordCoreNLP('http://localhost:9000')
 nlp_output = inst.annotate(questions1[0], properties={
@@ -115,9 +142,10 @@ for i in range(0, len(nlp_output['sentences'][0]['entitymentions'])):
     found_entities.update({nlp_output['sentences'][0]['entitymentions'][i]['ner']:
                      nlp_output['sentences'][0]['entitymentions'][i]['text']})
 
+
 # check whether the entities found are matching the subject or object of the question;
 # this information will be carried along to ontology lookup to steer the direction of the query,
-# in particular, getting all properties or all inverse properties
+# in particular, getting all properties or all inverse properties in the ontology
 startPointIsObject = False
 for foundling in found_entities.values():
     if(fuzz.partial_ratio(findings['obj_of_intent'], found_entities.values())> 50):
@@ -126,26 +154,33 @@ for foundling in found_entities.values():
     if((fuzz.partial_ratio(findings['subj_of_intent'], found_entities.values())> 50)):
         findings['subj_of_intent'] = foundling
 
-spo_dict = search_ontology_for_involved_entities(findings, startPointIsObject)
-# next, it is possible to do a fuzzy check to see whether i.e. the root is in the involved predicates
-# also, check if the individuals are instances_of concept_of_target
-
-# make this an else statement (owl.ObjectProperty is recognized as a special variable and works for checking
-# if it is present, as opposed to schema.org.person etc.)
-t = onto.search_one(label = '*kills*')
-class_or_property = t.is_a
-if (owl.ObjectProperty in class_or_property) == True:
-    for x, y in t.get_relations():
-        print(x.label, t.label, y.label)
-        #['Quentin Beck'], ['kills'], ['Fire Elemental']
-        #['drones'], ['kills'], ['Quentin Beck']
-        #[...]
-
+indv_concept_mapping = defaultdict()
 for x in onto.individuals():
-    print(x.label, x.is_instance_of)
-    #['storm']['schema.org.object']
-    #['Maria Hill']['schema.org.person']
-    #[...]
+    indv_concept_mapping[x.label.first()] = x.is_instance_of.first()
+spo_dict = search_ontology_for_involved_entities(findings, startPointIsObject)
+
+
+# do a fuzzy check to see whether the root is in the involved predicates
+# if so, check if the individual the root is pointing to is an instance of concept_of_target
+# (as of now, nothing happens if it is not, but one could get back to the user with the intermediate
+# result and ask for closer details)
+indv[0] = fuzzy_match_on_target(spo_dict)
+
+# if there is a perceived match, return it to the console and close the program
+# if none of the predicates match, try finding semantically related words in the ontology
+if indv[0]:
+    print('I found the following answer to your question: ' + indv)
+    sys.exit()
+
+related_words = wordnet.synsets(findings['root_of_intent'])
+related_words = set(chain.from_iterable([word.lemma_names() for word in related_words]))
+for word in related_words:
+    match = search_ontology_for_property(word, findings, startPointIsObject)
+    if match:
+        indv[0] = fuzzy_match_on_target(spo_dict)
+        if indv[0]:
+            print('I found the following answer to your question: ' + indv)
+            sys.exit()
 
 
 # the different wdts look for a type of relationship and could be used to narrow down the context
