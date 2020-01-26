@@ -14,32 +14,24 @@ import logging
 logging.basicConfig(filename='app.log', level=logging.ERROR,
                     format='%(asctime)s %(levelname)s %(name)s %(message)s')
 logger=logging.getLogger(__name__)
-import owlready2
 from owlready2 import *
 from collections import defaultdict
 from pycorenlp import StanfordCoreNLP
 from fuzzywuzzy import fuzz
 from itertools import chain
 from nltk.corpus import wordnet
+from bs4 import BeautifulSoup
+import requests
+import re
+from gensim import corpora
+from gensim import models
+from gensim import similarities
 
 # load ontology
 onto_path.append(str(os.getcwd() + '/data'))
 onto = get_ontology("ontology_Homecoming.owx").load()
 
-# question = sys.argv[1]
-questions1 = ["Who killed Quentin Beck?", "How does Quentin Beck die?", "Quentin Beck death"]
-questions2 = ["Where is the school travelling to?", "Where is the school going?", "which locations are visited?"]
-# 1. create a list of adverbs describing the intent: WHERE -> location, WHO -> person
-# fire all you have got to get a grasp of what is asked for, like NER, openie, word embedding etc.
-# then load all docs from the wikipedia page and combine with ontology
-# return ontology on top prio if it is exactly matching
-# check wikidata for word families, i.e. "death" also known as ... and check
-# create hypernyms (https://stackoverflow.com/questions/19258652/how-to-get-synonyms-from-nltk-wordnet-python)
 
-# 1. intents: get det and advmod and their governors
-# check if they can be linked by WHERE -> location or who -> governor person or organization
-# with additional information about the governor, i.e. a lookup in the ontology
-# https://universaldependencies.org/u/pos/index.html
 def extract_question_indications(list_of_annotations, list_of_tokens):
     findings = {'subj_of_intent' : '',
                 'root_of_intent': '',
@@ -143,14 +135,34 @@ def search_ontology_for_property(word, findings, startPointIsObject):
     return(spo_dict)
 
 
+# reclycled from get_plot_outline.py
+def retrieve_plot(url):
+    req = requests.get(url)
+    soup = BeautifulSoup(req.text, "html.parser")
+
+    # extract the sequence of sections
+    # this is needed to stitch the regex together to exactly locate the plot description
+    # starting of Plot: <span class="mw-headline" id="Plot">Plot</span> ... </h2>\n<p>
+    # closing of Plot: </p>\n<h2><span class="mw-headline" id="Cast">Cast</span>
+    sections = [tag.get_text() for tag in soup.find_all("span", class_="mw-headline")]
+    list_index_plot = sections.index("Plot")
+
+    content = soup.getText().splitlines()
+    regex_res = re.findall('Plot(.+?)' + sections[list_index_plot + 1] + '', str(content))
+    plot = regex_res.pop(1)
+    return(plot)
+
+
 words_indicating_concepts = {'where':'location',
                              'who':'person',
                              'whom':'person',
                              'when':'event',
                              'what':'thing'}
 
+question = sys.argv[1]
+
 inst = StanfordCoreNLP('http://localhost:9000')
-nlp_output = inst.annotate(questions1[0], properties={
+nlp_output = inst.annotate(question, properties={
         'annotators': 'tokenize,ssplit,pos,depparse,parse, openie, ner',
         'outputFormat': 'json'
     })
@@ -201,9 +213,41 @@ for word in related_words:
             print('I found the following answer to your question: ' + indv)
             sys.exit()
 
+# if there was no match in the ontology, default back to returning similar sentences from the plot
+# so far, the ontology only covers "Spider-Man: Far from home", thus it is hardcoded
+# https://radimrehurek.com/gensim/auto_examples/core/run_similarity_queries.html#sphx-glr-auto-examples-core-run-similarity-queries-py
+# this code could be further include n-grams to capture 'Nick Fury', 'Quentin Beck' etc.
+documents = retrieve_plot('https://en.wikipedia.org/wiki/Spider-Man:_Far_From_Home')
+documents = documents.lower().split('.')
+stoplist = set('for a of the and to in'.split())
+texts = [
+    [word for word in document.lower().split() if word not in stoplist]
+    for document in documents
+]
 
+frequency = defaultdict(int)
+for text in texts:
+    for token in text:
+        frequency[token] += 1
+
+texts = [
+    [token for token in text if frequency[token] > 1]
+    for text in texts
+]
+
+dictionary = corpora.Dictionary(texts)
+corpus = [dictionary.doc2bow(text) for text in texts]
+lsi = models.LsiModel(corpus, id2word=dictionary, num_topics=round(len(texts) / 2))
+vec_bow = dictionary.doc2bow(question.lower().split())
+vec_lsi = lsi[vec_bow]
+index = similarities.MatrixSimilarity(lsi[corpus])
+sims = index[vec_lsi]
+sims = sorted(enumerate(sims), key=lambda item: -item[1])
+documents[sims[0][0]]
+
+# an unexplored feature of this code lies in the enrichment through community curated content
 # the different wdts look for a type of relationship and could be used to narrow down the context
-# in follow-ups, similar to https://stackoverflow.com/questions/55981277/how-to-filter-wikidata-labels-in-concept-search
+# https://stackoverflow.com/questions/55981277/how-to-filter-wikidata-labels-in-concept-search
 #
 # SELECT DISTINCT ?item {
 #     VALUES ?searchTerm { "death" }
@@ -219,71 +263,3 @@ for word in related_words:
 #     ?item (wdt:P279|wdt:P31|wdt:P361|wdt:P828|wdt:P910|wdt:1659) ?type
 # }
 # ORDER BY ?searchTerm ?num
-
-import gensim
-from gensim import corpora
-from gensim import models
-
-text_corpus = [
-    "Human machine interface for lab abc computer applications",
-    "A survey of user opinion of computer system response time",
-    "The EPS user interface management system",
-    "System and human system engineering testing of EPS",
-    "Relation of user perceived response time to error measurement",
-    "The generation of random binary unordered trees",
-    "The intersection graph of paths in trees",
-    "Graph minors IV Widths of trees and well quasi ordering",
-    "Graph minors A survey",
-]
-
-# remark the stop word list of gensim eliminated too much words that were actually useful
-stoplist = set('for a of the and to in'.split(' '))
-# Lowercase each document, split it by white space and filter out stopwords
-texts = [[word for word in document.lower().split() if word not in stoplist] for document in text_corpus]
-# remark: as opposed to the standard of throwing out words that only occur once or twice, I'm keeping all of them
-# so the code below #--- is not needed
-#--- Count word frequencies
-from collections import defaultdict
-frequency = defaultdict(int)
-for text in texts:
-    for token in text:
-        frequency[token] += 1
-
-#--- Only keep words that appear more than once
-processed_corpus = [[token for token in text if frequency[token] > 1] for text in texts]
-pprint.pprint(processed_corpus)
-
-# associate each word in corpus with unique id
-dictionary = corpora.Dictionary(processed_corpus)
-print(dictionary)
-pprint.pprint(dictionary.token2id)
-# a new document is tested against the bag of word model dictionary above
-new_doc = "Human computer interaction"
-new_vec = dictionary.doc2bow(new_doc.lower().split())
-print(new_vec)
-print('the first tuple says id 0 is present one time in new_doc and id 1 is 1 time present, the last one isnt there')
-# convert everything into that logic
-bow_corpus = [dictionary.doc2bow(text) for text in processed_corpus]
-pprint.pprint(bow_corpus)
-
-# now, a model can be applied - here its tf-idf powered by bag of words
-tfidf = models.TfidfModel(bow_corpus)
-print(tfidf[[(0, 1), (1, 1)]])
-# latent semantic indexing (coining the terms to its concepts) should be used in combination with tfs idf
-# https://stats.stackexchange.com/questions/99132/alternatives-to-bag-of-words-based-classifiers-for-text-classification
-# by setting num_topics to 2, only 2 topics are being created, each being a mixture of the words
-corpus_tfidf = tfidf[bow_corpus]
-for doc in corpus_tfidf:
-    print(doc)
-lsi_model = models.LsiModel(corpus_tfidf, id2word=dictionary, num_topics=2)  # initialize an LSI transformation
-corpus_lsi = lsi_model[corpus_tfidf]  # create a double wrapper over the original corpus: bow->tfidf->fold-in-lsi
-lsi_model.print_topics()
-for doc, as_text in zip(corpus_lsi, text_corpus):
-    print(doc, as_text)
-
-#
-flat_list = [item for sublist in triples for item in sublist]
-text_corpus = [' '.join(i) for i in flat_list]
-texts = [[word for word in document.lower().split()] for document in text_corpus]
-dictionary = corpora.Dictionary(texts)
-bow_corpus = [dictionary.doc2bow(text) for text in texts]
