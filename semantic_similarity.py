@@ -73,9 +73,11 @@ def search_ontology_for_involved_entities(findings, startPointIsObject):
 
     spo_dict = defaultdict(list)
 
+    triples = []
     involved_subjects = []
     involved_predicates = []
     involved_objects = []
+
 
     if startPointIsObject == True:
         label = '*' + findings['obj_of_intent'] + '*'
@@ -84,12 +86,28 @@ def search_ontology_for_involved_entities(findings, startPointIsObject):
             involved_subjects.append(s.label.first())
             involved_predicates.append(p.label.first())
 
+    # if it is not clear what the object of intent is, it is a bit fiddly to base the search on;
+    # then, all outgoing properties and pointers to objects are returned:
     if startPointIsObject == False:
         label = '*' + findings['subj_of_intent'] + '*'
         ontology_item = onto.search_one(label=label)
-        for p, o in ontology_item.get_properties():
-            involved_predicates.append(p.label.first())
-            involved_objects.append(o.label.first())
+        for p in ontology_item.get_properties():
+            try:
+                for s, o in p.get_relations():
+                    if s.label.first() in ontology_item.label:
+                        triples.append(s.label.first() +
+                                  '%' + p.label.first() +
+                                  '%' + o.label.first())
+            except:
+                pass
+
+        triples = list(map(lambda x: x.split('%'), triples))
+        involved_subjects = []
+        involved_objects = []
+        for triple in triples:
+            involved_subjects.append(triple[0])
+            involved_predicates.append(triple[1])
+            involved_objects.append(triple[2])
 
     spo_dict['involved_subjects'] = involved_subjects
     spo_dict['involved_predicates'] = involved_predicates
@@ -99,6 +117,7 @@ def search_ontology_for_involved_entities(findings, startPointIsObject):
 
 
 def fuzzy_match_on_target(spo_dict):
+    indv = ''
     intended_concept_confirmed = False
     for predicate in enumerate(spo_dict['involved_predicates']):
         if fuzz.ratio(predicate[1], findings['root_of_intent']) > 60:
@@ -164,11 +183,11 @@ spo_dict = search_ontology_for_involved_entities(findings, startPointIsObject)
 # if so, check if the individual the root is pointing to is an instance of concept_of_target
 # (as of now, nothing happens if it is not, but one could get back to the user with the intermediate
 # result and ask for closer details)
-indv[0] = fuzzy_match_on_target(spo_dict)
+indv = fuzzy_match_on_target(spo_dict)[0]
 
 # if there is a perceived match, return it to the console and close the program
 # if none of the predicates match, try finding semantically related words in the ontology
-if indv[0]:
+if indv:
     print('I found the following answer to your question: ' + indv)
     sys.exit()
 
@@ -177,8 +196,8 @@ related_words = set(chain.from_iterable([word.lemma_names() for word in related_
 for word in related_words:
     match = search_ontology_for_property(word, findings, startPointIsObject)
     if match:
-        indv[0] = fuzzy_match_on_target(spo_dict)
-        if indv[0]:
+        indv = fuzzy_match_on_target(spo_dict)[0]
+        if indv:
             print('I found the following answer to your question: ' + indv)
             sys.exit()
 
