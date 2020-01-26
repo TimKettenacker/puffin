@@ -1,8 +1,4 @@
-# the code snippets presented here are most useful when it comes to applying queries on text; map keywords input
-# on apparent semantic relatedness of the documents (in how far can it answer questions that are implicit in text)
-# https://radimrehurek.com/gensim/auto_examples/core/run_similarity_queries.html#sphx-glr-auto-examples-core-run-similarity-queries-py
 # before running start the stanford core server in the respective directory, following the commentary in this manual:
-
 # https://stackoverflow.com/questions/32879532/stanford-nlp-for-python
 # cd Documents
 # cd stanford-corenlp-full-2018-10-05
@@ -135,7 +131,7 @@ def search_ontology_for_property(word, findings, startPointIsObject):
     return(spo_dict)
 
 
-# reclycled from get_plot_outline.py
+# recycled from get_plot_outline.py
 def retrieve_plot(url):
     req = requests.get(url)
     soup = BeautifulSoup(req.text, "html.parser")
@@ -243,7 +239,9 @@ vec_lsi = lsi[vec_bow]
 index = similarities.MatrixSimilarity(lsi[corpus])
 sims = index[vec_lsi]
 sims = sorted(enumerate(sims), key=lambda item: -item[1])
-documents[sims[0][0]]
+
+print('I found the following answer to your question: ' + documents[sims[0][0]])
+sys.exit()
 
 # an unexplored feature of this code lies in the enrichment through community curated content
 # the different wdts look for a type of relationship and could be used to narrow down the context
